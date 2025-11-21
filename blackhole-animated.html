@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animated Black Hole - Using Real Image</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        body {
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #fff;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 5px;
+            backdrop-filter: blur(5px);
+            font-family: 'Courier New', monospace;
+        }
+
+        .control-group {
+            margin: 10px 0;
+        }
+
+        label {
+            display: inline-block;
+            width: 150px;
+            font-size: 12px;
+        }
+
+        input[type="range"] {
+            width: 150px;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 24px;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading...</div>
+
+    <div id="controls" style="display: none;">
+        <div class="control-group">
+            <label>Rotation Speed:</label>
+            <input type="range" id="rotationSpeed" min="0" max="2" step="0.1" value="0.3">
+            <span id="rotationSpeedValue">0.3</span>
+        </div>
+        <div class="control-group">
+            <label>Distortion:</label>
+            <input type="range" id="distortion" min="0" max="1" step="0.05" value="0.2">
+            <span id="distortionValue">0.2</span>
+        </div>
+        <div class="control-group">
+            <label>Glow Intensity:</label>
+            <input type="range" id="glowIntensity" min="0" max="2" step="0.1" value="1.2">
+            <span id="glowIntensityValue">1.2</span>
+        </div>
+        <div class="control-group">
+            <label>Particles:</label>
+            <input type="range" id="particleDensity" min="0" max="5000" step="500" value="2000">
+            <span id="particleDensityValue">2000</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let imagePlane, particles;
+        let imageTexture;
+        let clock = new THREE.Clock();
+
+        const params = {
+            rotationSpeed: 0.3,
+            distortion: 0.2,
+            glowIntensity: 1.2,
+            particleDensity: 2000
+        };
+
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+
+            // Camera
+            camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({
+                antialias: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Load the actual black hole image
+            const loader = new THREE.TextureLoader();
+            loader.load('Supermassive-Black-Hole-Illustration-Artists-Concept.jpg', (texture) => {
+                imageTexture = texture;
+                createAnimatedImage();
+                createParticles();
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('controls').style.display = 'block';
+
+                animate();
+            }, undefined, (error) => {
+                console.error('Error loading image:', error);
+                document.getElementById('loading').textContent = 'Error loading image!';
+            });
+
+            // Controls
+            setupControls();
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function createAnimatedImage() {
+            // Create shader material to animate the actual image
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTexture: { value: imageTexture },
+                    uTime: { value: 0 },
+                    uRotationSpeed: { value: params.rotationSpeed },
+                    uDistortion: { value: params.distortion },
+                    uGlowIntensity: { value: params.glowIntensity },
+                    uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+                    uImageResolution: { value: new THREE.Vector2(imageTexture.image.width, imageTexture.image.height) }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D uTexture;
+                    uniform float uTime;
+                    uniform float uRotationSpeed;
+                    uniform float uDistortion;
+                    uniform float uGlowIntensity;
+                    uniform vec2 uResolution;
+                    uniform vec2 uImageResolution;
+
+                    varying vec2 vUv;
+
+                    void main() {
+                        // Calculate aspect ratios
+                        float screenAspect = uResolution.x / uResolution.y;
+                        float imageAspect = uImageResolution.x / uImageResolution.y;
+
+                        // Adjust UV to maintain image aspect ratio
+                        vec2 uv = vUv;
+                        if (screenAspect > imageAspect) {
+                            float scale = screenAspect / imageAspect;
+                            uv.x = (uv.x - 0.5) * scale + 0.5;
+                        } else {
+                            float scale = imageAspect / screenAspect;
+                            uv.y = (uv.y - 0.5) * scale + 0.5;
+                        }
+
+                        // Center point of black hole (adjust based on image)
+                        vec2 center = vec2(0.58, 0.48);
+                        vec2 toCenter = uv - center;
+                        float dist = length(toCenter);
+
+                        // Create rotating effect for the accretion disk
+                        // Only affect areas outside the event horizon but inside the disk
+                        float eventHorizonRadius = 0.08;
+                        float diskRadius = 0.35;
+
+                        vec2 animatedUV = uv;
+
+                        if (dist > eventHorizonRadius && dist < diskRadius) {
+                            // Calculate angle
+                            float angle = atan(toCenter.y, toCenter.x);
+
+                            // Rotation amount decreases with distance (differential rotation)
+                            float rotationAmount = uRotationSpeed * uTime * (1.0 - (dist - eventHorizonRadius) / diskRadius);
+
+                            // Rotate
+                            float newAngle = angle + rotationAmount;
+
+                            // Convert back to UV
+                            animatedUV = center + vec2(cos(newAngle), sin(newAngle)) * dist;
+
+                            // Add wave distortion for turbulence
+                            float waveDistortion = sin(dist * 20.0 - uTime * 2.0) * uDistortion * 0.01;
+                            float wave2 = sin(angle * 8.0 + uTime) * uDistortion * 0.005;
+                            animatedUV += vec2(waveDistortion * cos(angle), waveDistortion * sin(angle));
+                            animatedUV += vec2(wave2 * sin(angle), -wave2 * cos(angle));
+                        }
+
+                        // Sample the texture
+                        vec4 color = texture2D(uTexture, animatedUV);
+
+                        // Add pulsing glow to bright areas
+                        float brightness = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+                        if (brightness > 0.5) {
+                            float pulse = sin(uTime * 2.0) * 0.1 + 0.9;
+                            float glowBoost = (brightness - 0.5) * uGlowIntensity * pulse * 0.5;
+                            color.rgb += vec3(glowBoost * 1.0, glowBoost * 0.7, glowBoost * 0.3);
+                        }
+
+                        // Add radial glow around the event horizon
+                        if (dist > eventHorizonRadius - 0.02 && dist < eventHorizonRadius + 0.15) {
+                            float glowStrength = smoothstep(eventHorizonRadius + 0.15, eventHorizonRadius, dist);
+                            float pulse = sin(uTime * 3.0) * 0.3 + 0.7;
+                            vec3 glowColor = vec3(1.0, 0.6, 0.2) * glowStrength * 0.3 * pulse * uGlowIntensity;
+                            color.rgb += glowColor;
+                        }
+
+                        gl_FragColor = color;
+                    }
+                `
+            });
+
+            const geometry = new THREE.PlaneGeometry(2, 2);
+            imagePlane = new THREE.Mesh(geometry, material);
+            scene.add(imagePlane);
+        }
+
+        function createParticles() {
+            const particleGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(params.particleDensity * 3);
+            const colors = new Float32Array(params.particleDensity * 3);
+            const sizes = new Float32Array(params.particleDensity);
+            const velocities = new Float32Array(params.particleDensity * 3);
+
+            for (let i = 0; i < params.particleDensity; i++) {
+                const i3 = i * 3;
+
+                // Position in screen space (-1 to 1)
+                // Concentrate around the accretion disk area
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 0.15 + Math.random() * 0.35;
+
+                positions[i3] = Math.cos(angle) * radius + 0.16; // Offset to center on black hole
+                positions[i3 + 1] = Math.sin(angle) * radius - 0.04;
+                positions[i3 + 2] = 0;
+
+                // Orbital velocity
+                const speed = 0.3 / Math.sqrt(radius);
+                velocities[i3] = -Math.sin(angle) * speed;
+                velocities[i3 + 1] = Math.cos(angle) * speed;
+                velocities[i3 + 2] = 0;
+
+                // Colors based on position (hotter closer in)
+                const temp = 1.0 - (radius / 0.5);
+                if (positions[i3] < 0.16) { // Left side - orange
+                    colors[i3] = 1.0;
+                    colors[i3 + 1] = 0.5 + temp * 0.3;
+                    colors[i3 + 2] = 0.1 + temp * 0.2;
+                } else { // Right side - blue
+                    colors[i3] = 0.3 + temp * 0.4;
+                    colors[i3 + 1] = 0.5 + temp * 0.3;
+                    colors[i3 + 2] = 0.8 + temp * 0.2;
+                }
+
+                sizes[i] = Math.random() * 3 + 1;
+            }
+
+            particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            particleGeo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            particleGeo.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
+
+            const particleMat = new THREE.PointsMaterial({
+                size: 0.005,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.7,
+                blending: THREE.AdditiveBlending,
+                sizeAttenuation: false
+            });
+
+            particles = new THREE.Points(particleGeo, particleMat);
+            scene.add(particles);
+        }
+
+        function updateParticles(delta) {
+            if (!particles) return;
+
+            const positions = particles.geometry.attributes.position.array;
+            const velocities = particles.geometry.attributes.velocity.array;
+            const colors = particles.geometry.attributes.color.array;
+
+            const center = new THREE.Vector2(0.16, -0.04);
+            const eventHorizonRadius = 0.08;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const y = positions[i + 1];
+
+                const dx = x - center.x;
+                const dy = y - center.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // Check if reached event horizon
+                if (dist < eventHorizonRadius) {
+                    // Respawn at outer edge
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = 0.4 + Math.random() * 0.1;
+
+                    positions[i] = Math.cos(angle) * radius + center.x;
+                    positions[i + 1] = Math.sin(angle) * radius + center.y;
+
+                    const speed = 0.3 / Math.sqrt(radius);
+                    velocities[i] = -Math.sin(angle) * speed;
+                    velocities[i + 1] = Math.cos(angle) * speed;
+                } else {
+                    // Orbital motion
+                    positions[i] += velocities[i] * delta * params.rotationSpeed;
+                    positions[i + 1] += velocities[i + 1] * delta * params.rotationSpeed;
+
+                    // Pull inward slightly
+                    const pullStrength = 0.02 * delta;
+                    positions[i] -= dx * pullStrength;
+                    positions[i + 1] -= dy * pullStrength;
+                }
+
+                // Update color based on position and distance
+                const temp = 1.0 - (dist / 0.5);
+                if (x < center.x) {
+                    colors[i] = 1.0;
+                    colors[i + 1] = 0.5 + temp * 0.3;
+                    colors[i + 2] = 0.1 + temp * 0.2;
+                } else {
+                    colors[i] = 0.3 + temp * 0.4;
+                    colors[i + 1] = 0.5 + temp * 0.3;
+                    colors[i + 2] = 0.8 + temp * 0.2;
+                }
+            }
+
+            particles.geometry.attributes.position.needsUpdate = true;
+            particles.geometry.attributes.color.needsUpdate = true;
+        }
+
+        function setupControls() {
+            document.getElementById('rotationSpeed').addEventListener('input', (e) => {
+                params.rotationSpeed = parseFloat(e.target.value);
+                document.getElementById('rotationSpeedValue').textContent = e.target.value;
+                if (imagePlane) {
+                    imagePlane.material.uniforms.uRotationSpeed.value = params.rotationSpeed;
+                }
+            });
+
+            document.getElementById('distortion').addEventListener('input', (e) => {
+                params.distortion = parseFloat(e.target.value);
+                document.getElementById('distortionValue').textContent = e.target.value;
+                if (imagePlane) {
+                    imagePlane.material.uniforms.uDistortion.value = params.distortion;
+                }
+            });
+
+            document.getElementById('glowIntensity').addEventListener('input', (e) => {
+                params.glowIntensity = parseFloat(e.target.value);
+                document.getElementById('glowIntensityValue').textContent = e.target.value;
+                if (imagePlane) {
+                    imagePlane.material.uniforms.uGlowIntensity.value = params.glowIntensity;
+                }
+            });
+
+            document.getElementById('particleDensity').addEventListener('input', (e) => {
+                const newDensity = parseInt(e.target.value);
+                document.getElementById('particleDensityValue').textContent = newDensity;
+
+                if (newDensity !== params.particleDensity) {
+                    params.particleDensity = newDensity;
+
+                    // Remove old particles
+                    if (particles) {
+                        scene.remove(particles);
+                        particles.geometry.dispose();
+                        particles.material.dispose();
+                    }
+
+                    // Create new particles
+                    if (newDensity > 0) {
+                        createParticles();
+                    }
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            if (imagePlane) {
+                imagePlane.material.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+
+            // Update shader time
+            if (imagePlane) {
+                imagePlane.material.uniforms.uTime.value = elapsed;
+            }
+
+            // Update particles
+            if (particles) {
+                updateParticles(delta);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>
