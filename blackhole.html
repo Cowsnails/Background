@@ -104,14 +104,9 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
     <script>
         // Scene setup
-        let scene, camera, renderer, composer;
+        let scene, camera, renderer;
         let blackHole, accretionDisk, particles, starField;
         let clock = new THREE.Clock();
 
@@ -119,95 +114,8 @@
         const params = {
             diskRotationSpeed: 1.0,
             particleCount: 10000,
-            glowIntensity: 1.0,
-            lensDistortion: 0.5
+            glowIntensity: 1.0
         };
-
-        // Gravitational lensing shader
-        const GravitationalLensingShader = {
-            uniforms: {
-                tDiffuse: { value: null },
-                time: { value: 0 },
-                blackHolePos: { value: new THREE.Vector2(0.5, 0.5) },
-                lensStrength: { value: 0.5 },
-                eventHorizonRadius: { value: 0.08 }
-            },
-            vertexShader: `
-                varying vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                uniform sampler2D tDiffuse;
-                uniform float time;
-                uniform vec2 blackHolePos;
-                uniform float lensStrength;
-                uniform float eventHorizonRadius;
-                varying vec2 vUv;
-
-                void main() {
-                    vec2 uv = vUv;
-                    vec2 delta = uv - blackHolePos;
-                    float dist = length(delta);
-
-                    // Gravitational lensing distortion
-                    if (dist > 0.001 && dist < 0.4) {
-                        float lensing = lensStrength / (dist * dist + 0.01);
-                        lensing *= smoothstep(0.4, 0.0, dist);
-
-                        // Spiral distortion
-                        float angle = atan(delta.y, delta.x);
-                        float spiral = sin(angle * 3.0 - time * 0.5) * 0.02;
-
-                        vec2 offset = normalize(delta) * lensing * (1.0 + spiral);
-                        uv += offset;
-                    }
-
-                    // Event horizon darkening with accretion glow
-                    float horizon = smoothstep(eventHorizonRadius + 0.02, eventHorizonRadius, dist);
-                    float glow = smoothstep(0.2, eventHorizonRadius, dist) * (1.0 - horizon);
-
-                    vec4 color = texture2D(tDiffuse, uv);
-
-                    // Add orange glow around event horizon
-                    vec3 glowColor = vec3(1.0, 0.5, 0.1) * glow * 0.3;
-                    color.rgb += glowColor;
-
-                    // Darken event horizon
-                    color.rgb *= (1.0 - horizon * 0.95);
-
-                    gl_FragColor = color;
-                }
-            `
-        };
-
-        function setupPostProcessing() {
-            composer = new THREE.EffectComposer(renderer);
-
-            // Render pass
-            const renderPass = new THREE.RenderPass(scene, camera);
-            composer.addPass(renderPass);
-
-            // Gravitational lensing pass
-            const lensPass = new THREE.ShaderPass(GravitationalLensingShader);
-            lensPass.renderToScreen = false;
-            composer.addPass(lensPass);
-
-            // Bloom pass for glowing effects
-            const bloomPass = new THREE.UnrealBloomPass(
-                new THREE.Vector2(window.innerWidth, window.innerHeight),
-                1.5,  // strength
-                0.4,  // radius
-                0.85  // threshold
-            );
-            composer.addPass(bloomPass);
-
-            // Store reference for updates
-            window.lensPass = lensPass;
-            window.bloomPass = bloomPass;
-        }
 
         function init() {
             // Scene
@@ -233,9 +141,6 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setClearColor(0x000000, 1);
             document.body.appendChild(renderer.domElement);
-
-            // Post-processing setup
-            setupPostProcessing();
 
             // Lighting
             const ambientLight = new THREE.AmbientLight(0x222222);
@@ -639,12 +544,6 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-            composer.setSize(window.innerWidth, window.innerHeight);
-
-            // Update bloom pass size
-            if (window.bloomPass) {
-                window.bloomPass.setSize(window.innerWidth, window.innerHeight);
-            }
         }
 
         function animate() {
@@ -680,20 +579,8 @@
                 blackHole.children[1].material.opacity = 0.05 + Math.sin(elapsed * 2) * 0.03;
             }
 
-            // Update gravitational lensing shader
-            if (window.lensPass) {
-                window.lensPass.uniforms.time.value = elapsed;
-
-                // Project black hole position to screen space
-                const blackHoleScreenPos = blackHole.position.clone().project(camera);
-                window.lensPass.uniforms.blackHolePos.value.set(
-                    (blackHoleScreenPos.x + 1) / 2,
-                    (blackHoleScreenPos.y + 1) / 2
-                );
-            }
-
-            // Render with post-processing
-            composer.render();
+            // Render the scene
+            renderer.render(scene, camera);
         }
 
         // Start the animation
