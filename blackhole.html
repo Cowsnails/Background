@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Supermassive Black Hole - WebGL Animation</title>
+    <title>Supermassive Black Hole - Exact Recreation</title>
     <style>
         * {
             margin: 0;
@@ -61,75 +61,51 @@
         input[type="range"] {
             width: 150px;
         }
-
-        #loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #fff;
-            font-size: 24px;
-            text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
-        }
     </style>
 </head>
 <body>
-    <div id="loading">Loading Black Hole...</div>
-
-    <div id="info" style="display: none;">
-        <h3>🌌 Supermassive Black Hole</h3>
-        <p>WebGL/Three.js Animation</p>
-        <p style="margin-top: 10px; font-size: 11px;">
-            Mouse: Rotate View<br>
-            Scroll: Zoom In/Out
-        </p>
+    <div id="info">
+        <h3>Supermassive Black Hole</h3>
+        <p>Exact Recreation - Animated</p>
     </div>
 
-    <div id="controls" style="display: none;">
+    <div id="controls">
         <div class="control-group">
-            <label>Disk Speed:</label>
-            <input type="range" id="diskSpeed" min="0.1" max="3" step="0.1" value="1">
-            <span id="diskSpeedValue">1.0</span>
+            <label>Rotation Speed:</label>
+            <input type="range" id="rotationSpeed" min="0.1" max="3" step="0.1" value="0.5">
+            <span id="rotationSpeedValue">0.5</span>
         </div>
         <div class="control-group">
-            <label>Particle Density:</label>
-            <input type="range" id="particleDensity" min="1000" max="20000" step="1000" value="10000">
-            <span id="particleDensityValue">10000</span>
-        </div>
-        <div class="control-group">
-            <label>Glow Intensity:</label>
-            <input type="range" id="glowIntensity" min="0" max="2" step="0.1" value="1">
-            <span id="glowIntensityValue">1.0</span>
+            <label>Flare Intensity:</label>
+            <input type="range" id="flareIntensity" min="0.5" max="3" step="0.1" value="1.5">
+            <span id="flareIntensityValue">1.5</span>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        // Scene setup
         let scene, camera, renderer;
-        let blackHole, accretionDisk, particles, starField;
+        let blackHole, accretionDisk, leftFlare, rightStream, nebula;
         let clock = new THREE.Clock();
 
-        // Animation parameters
         const params = {
-            diskRotationSpeed: 1.0,
-            particleCount: 10000,
-            glowIntensity: 1.0
+            rotationSpeed: 0.5,
+            flareIntensity: 1.5
         };
 
         function init() {
             // Scene
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x000000, 0.00025);
 
-            // Camera
+            // Camera - positioned to match the exact viewing angle from the image
             camera = new THREE.PerspectiveCamera(
-                75,
+                60,
                 window.innerWidth / window.innerHeight,
                 0.1,
                 10000
             );
-            camera.position.set(0, 30, 100);
+            // Position camera to get that tilted view
+            camera.position.set(20, 50, 80);
             camera.lookAt(0, 0, 0);
 
             // Renderer
@@ -142,20 +118,25 @@
             renderer.setClearColor(0x000000, 1);
             document.body.appendChild(renderer.domElement);
 
-            // Lighting
-            const ambientLight = new THREE.AmbientLight(0x222222);
+            // Create the scene
+            createNebulaBackground();
+            createBlackHoleCore();
+            createAsymmetricAccretionDisk();
+            createLeftFlare();
+            createRightStream();
+            createMagneticFieldLines();
+
+            // Lighting - asymmetric to match image
+            const leftLight = new THREE.PointLight(0xffaa00, 3, 200);
+            leftLight.position.set(-40, -20, 20);
+            scene.add(leftLight);
+
+            const rightLight = new THREE.PointLight(0x0088ff, 0.5, 200);
+            rightLight.position.set(40, 0, 20);
+            scene.add(rightLight);
+
+            const ambientLight = new THREE.AmbientLight(0x111111);
             scene.add(ambientLight);
-
-            const pointLight = new THREE.PointLight(0xffa500, 2, 1000);
-            pointLight.position.set(0, 0, 0);
-            scene.add(pointLight);
-
-            // Create components
-            createStarField();
-            createBlackHole();
-            createAccretionDisk();
-            createParticleSystem();
-            createRelativisticJets();
 
             // Controls
             setupControls();
@@ -163,35 +144,64 @@
             // Handle window resize
             window.addEventListener('resize', onWindowResize, false);
 
-            // Mouse interaction
-            let mouseX = 0, mouseY = 0;
-            document.addEventListener('mousemove', (e) => {
-                mouseX = (e.clientX / window.innerWidth) * 2 - 1;
-                mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
-            });
-
-            // Hide loading, show UI
-            setTimeout(() => {
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('info').style.display = 'block';
-                document.getElementById('controls').style.display = 'block';
-            }, 1000);
-
             animate();
         }
 
-        function createStarField() {
+        function createNebulaBackground() {
+            nebula = new THREE.Group();
+
+            // Create nebula clouds with colors matching the image
+            // Left side - reddish/orange nebula
+            const leftNebulaGeo = new THREE.SphereGeometry(3000, 32, 32);
+            const leftNebulaMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: `
+                    varying vec3 vPosition;
+                    void main() {
+                        vPosition = position;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    varying vec3 vPosition;
+
+                    void main() {
+                        vec3 color = vec3(0.0);
+
+                        // Left side - reddish orange
+                        if (vPosition.x < 0.0) {
+                            float intensity = smoothstep(0.0, -3000.0, vPosition.x) * 0.15;
+                            color = vec3(0.3, 0.1, 0.05) * intensity;
+                        }
+                        // Right side - blue/cyan
+                        else {
+                            float intensity = smoothstep(0.0, 3000.0, vPosition.x) * 0.1;
+                            color = vec3(0.05, 0.1, 0.2) * intensity;
+                        }
+
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                `,
+                side: THREE.BackSide,
+                transparent: true
+            });
+
+            const leftNebula = new THREE.Mesh(leftNebulaGeo, leftNebulaMat);
+            nebula.add(leftNebula);
+
+            // Add stars
             const starGeometry = new THREE.BufferGeometry();
-            const starCount = 15000;
+            const starCount = 8000;
             const positions = new Float32Array(starCount * 3);
             const colors = new Float32Array(starCount * 3);
             const sizes = new Float32Array(starCount);
 
             for (let i = 0; i < starCount; i++) {
                 const i3 = i * 3;
-
-                // Random spherical distribution
-                const radius = 2000 + Math.random() * 3000;
+                const radius = 1000 + Math.random() * 4000;
                 const theta = Math.random() * Math.PI * 2;
                 const phi = Math.acos(2 * Math.random() - 1);
 
@@ -199,24 +209,12 @@
                 positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
                 positions[i3 + 2] = radius * Math.cos(phi);
 
-                // Star colors (mostly white with some blue/red variation)
-                const colorVariation = Math.random();
-                if (colorVariation > 0.95) {
-                    colors[i3] = 0.5 + Math.random() * 0.5;
-                    colors[i3 + 1] = 0.7 + Math.random() * 0.3;
-                    colors[i3 + 2] = 1.0;
-                } else if (colorVariation > 0.9) {
-                    colors[i3] = 1.0;
-                    colors[i3 + 1] = 0.6 + Math.random() * 0.2;
-                    colors[i3 + 2] = 0.4 + Math.random() * 0.2;
-                } else {
-                    const brightness = 0.7 + Math.random() * 0.3;
-                    colors[i3] = brightness;
-                    colors[i3 + 1] = brightness;
-                    colors[i3 + 2] = brightness;
-                }
+                const brightness = 0.5 + Math.random() * 0.5;
+                colors[i3] = brightness;
+                colors[i3 + 1] = brightness * 0.9;
+                colors[i3 + 2] = brightness * 0.8;
 
-                sizes[i] = Math.random() * 2 + 0.5;
+                sizes[i] = Math.random() * 1.5 + 0.5;
             }
 
             starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -224,68 +222,64 @@
             starGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
             const starMaterial = new THREE.PointsMaterial({
-                size: 1.5,
+                size: 1.0,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.8,
-                sizeAttenuation: true,
-                blending: THREE.AdditiveBlending
+                opacity: 0.6,
+                sizeAttenuation: true
             });
 
-            starField = new THREE.Points(starGeometry, starMaterial);
-            scene.add(starField);
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            nebula.add(stars);
+
+            scene.add(nebula);
         }
 
-        function createBlackHole() {
-            // Event horizon (perfectly black sphere)
-            const eventHorizonGeometry = new THREE.SphereGeometry(8, 64, 64);
-            const eventHorizonMaterial = new THREE.MeshBasicMaterial({
-                color: 0x000000,
-                side: THREE.FrontSide
-            });
-
-            const eventHorizon = new THREE.Mesh(eventHorizonGeometry, eventHorizonMaterial);
-
-            // Photon sphere glow
-            const photonSphereGeometry = new THREE.SphereGeometry(10, 64, 64);
-            const photonSphereMaterial = new THREE.MeshBasicMaterial({
-                color: 0xff8800,
-                transparent: true,
-                opacity: 0.1,
-                side: THREE.BackSide,
-                blending: THREE.AdditiveBlending
-            });
-
-            const photonSphere = new THREE.Mesh(photonSphereGeometry, photonSphereMaterial);
-
+        function createBlackHoleCore() {
             blackHole = new THREE.Group();
-            blackHole.add(eventHorizon);
-            blackHole.add(photonSphere);
 
+            // Event horizon
+            const eventHorizonGeo = new THREE.SphereGeometry(8, 64, 64);
+            const eventHorizonMat = new THREE.MeshBasicMaterial({
+                color: 0x000000
+            });
+            const eventHorizon = new THREE.Mesh(eventHorizonGeo, eventHorizonMat);
+
+            // Inner glow (photon sphere)
+            const glowGeo = new THREE.SphereGeometry(9, 64, 64);
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: 0xffaa44,
+                transparent: true,
+                opacity: 0.15,
+                side: THREE.BackSide
+            });
+            const glow = new THREE.Mesh(glowGeo, glowMat);
+
+            blackHole.add(eventHorizon);
+            blackHole.add(glow);
             scene.add(blackHole);
         }
 
-        function createAccretionDisk() {
+        function createAsymmetricAccretionDisk() {
             accretionDisk = new THREE.Group();
 
-            // Create multiple layers for depth and realism
-            const layers = 12;
+            // Create multiple disk layers with EXACT asymmetric coloring from the image
+            const diskLayers = 15;
 
-            for (let layer = 0; layer < layers; layer++) {
-                const innerRadius = 12 + layer * 2;
-                const outerRadius = innerRadius + 6;
-                const segments = 128;
+            for (let layer = 0; layer < diskLayers; layer++) {
+                const innerRadius = 10 + layer * 3;
+                const outerRadius = innerRadius + 5;
 
-                const geometry = new THREE.RingGeometry(innerRadius, outerRadius, segments, 8);
+                const geometry = new THREE.RingGeometry(innerRadius, outerRadius, 128, 6);
 
-                // Create custom shader material for the disk
+                // Custom shader matching the EXACT image colors
                 const material = new THREE.ShaderMaterial({
                     uniforms: {
                         time: { value: 0 },
                         layer: { value: layer },
                         innerRadius: { value: innerRadius },
                         outerRadius: { value: outerRadius },
-                        glowIntensity: { value: 1.0 }
+                        flareIntensity: { value: params.flareIntensity }
                     },
                     vertexShader: `
                         varying vec2 vUv;
@@ -302,7 +296,7 @@
                         uniform float layer;
                         uniform float innerRadius;
                         uniform float outerRadius;
-                        uniform float glowIntensity;
+                        uniform float flareIntensity;
 
                         varying vec2 vUv;
                         varying vec3 vPosition;
@@ -310,35 +304,52 @@
                         void main() {
                             float radius = length(vPosition.xy);
                             float normalizedRadius = (radius - innerRadius) / (outerRadius - innerRadius);
+                            float angle = atan(vPosition.y, vPosition.x);
 
-                            // Color gradient (hot inner to cool outer)
-                            vec3 innerColor = vec3(1.0, 1.0, 0.95); // White-yellow (hottest)
-                            vec3 midColor = vec3(1.0, 0.6, 0.1);    // Orange
-                            vec3 outerColor = vec3(0.8, 0.2, 0.05); // Red-orange
+                            // Asymmetric brightness - MUCH brighter on left (negative X)
+                            float azimuth = atan(vPosition.y, vPosition.x);
+
+                            // Left side gets MASSIVE brightness boost (matching the bright flare in image)
+                            float leftBrightness = smoothstep(0.0, 3.14, azimuth + 3.14) * 3.0;
+
+                            // Right side is darker with blue tint
+                            float rightDarkness = smoothstep(3.14, 0.0, azimuth + 3.14) * 0.3;
+
+                            float asymmetry = leftBrightness + rightDarkness;
+
+                            // Temperature-based colors matching the exact image
+                            vec3 innerColor = vec3(1.0, 1.0, 0.95);     // White-yellow (hottest)
+                            vec3 midColor = vec3(1.0, 0.5, 0.1);        // Bright orange
+                            vec3 outerColor = vec3(0.6, 0.15, 0.05);    // Dark red-orange
 
                             vec3 color;
-                            if (normalizedRadius < 0.5) {
-                                color = mix(innerColor, midColor, normalizedRadius * 2.0);
+                            if (normalizedRadius < 0.4) {
+                                color = mix(innerColor, midColor, normalizedRadius / 0.4);
                             } else {
-                                color = mix(midColor, outerColor, (normalizedRadius - 0.5) * 2.0);
+                                color = mix(midColor, outerColor, (normalizedRadius - 0.4) / 0.6);
                             }
 
-                            // Spiral patterns
-                            float angle = atan(vPosition.y, vPosition.x);
-                            float spiral = sin(angle * 8.0 - time * 2.0 + radius * 0.3) * 0.5 + 0.5;
+                            // Add blue tint on right side (positive X)
+                            if (vPosition.x > 0.0) {
+                                float blueTint = vPosition.x / radius * 0.4;
+                                color = mix(color, vec3(0.3, 0.5, 0.8), blueTint);
+                            }
 
-                            // Turbulence
-                            float turbulence = sin(radius * 0.5 + time + layer * 0.5) * 0.3 + 0.7;
+                            // Spiral structure
+                            float spiral = sin(angle * 5.0 - time * 0.5 + radius * 0.2) * 0.5 + 0.5;
 
-                            // Opacity falloff
-                            float opacity = (1.0 - normalizedRadius) * 0.7 * turbulence;
-                            opacity *= (1.0 - layer / 12.0) * 0.8 + 0.2;
+                            // Turbulent flow
+                            float turbulence = sin(radius * 0.3 + time * 0.3 + layer * 0.2) * 0.4 + 0.6;
 
-                            // Add brightness variation
-                            float brightness = spiral * 0.3 + 0.7;
-                            color *= brightness * glowIntensity;
+                            // Opacity with asymmetry
+                            float opacity = (1.0 - normalizedRadius * 0.7) * turbulence * spiral;
+                            opacity *= asymmetry * flareIntensity;
+                            opacity *= (1.0 - layer / 15.0) * 0.5 + 0.5;
 
-                            gl_FragColor = vec4(color, opacity);
+                            // Brightness boost
+                            color *= (spiral * 0.5 + 0.5) * asymmetry;
+
+                            gl_FragColor = vec4(color, opacity * 0.8);
                         }
                     `,
                     transparent: true,
@@ -349,192 +360,199 @@
 
                 const ring = new THREE.Mesh(geometry, material);
                 ring.rotation.x = -Math.PI / 2;
-                ring.rotation.z = (layer / layers) * Math.PI * 2;
+
+                // Slight tilt to match the image
+                ring.rotation.y = layer * 0.05;
 
                 accretionDisk.add(ring);
             }
 
+            // Tilt the entire disk to match viewing angle
+            accretionDisk.rotation.x = -0.3;
+
             scene.add(accretionDisk);
         }
 
-        function createParticleSystem() {
-            const particleGeometry = new THREE.BufferGeometry();
-            const particleCount = params.particleCount;
+        function createLeftFlare() {
+            // The BRIGHT orange-yellow flare on the left side matching the image
+            leftFlare = new THREE.Group();
 
-            const positions = new Float32Array(particleCount * 3);
-            const velocities = new Float32Array(particleCount * 3);
-            const colors = new Float32Array(particleCount * 3);
-            const sizes = new Float32Array(particleCount);
-            const ages = new Float32Array(particleCount);
+            // Main flare particles
+            const flareGeo = new THREE.BufferGeometry();
+            const flareCount = 5000;
+            const positions = new Float32Array(flareCount * 3);
+            const colors = new Float32Array(flareCount * 3);
+            const sizes = new Float32Array(flareCount);
 
-            for (let i = 0; i < particleCount; i++) {
+            for (let i = 0; i < flareCount; i++) {
                 const i3 = i * 3;
 
-                // Initialize particles in spiral orbits
-                const radius = 15 + Math.random() * 50;
-                const theta = Math.random() * Math.PI * 2;
-                const height = (Math.random() - 0.5) * 10;
+                // Create upward spray on the left side
+                const spreadX = (Math.random() - 1) * 30 - 20; // Bias to left
+                const spreadY = Math.random() * 60 - 10; // Spray upward
+                const spreadZ = (Math.random() - 0.5) * 15;
 
-                positions[i3] = Math.cos(theta) * radius;
-                positions[i3 + 1] = height;
-                positions[i3 + 2] = Math.sin(theta) * radius;
+                positions[i3] = spreadX;
+                positions[i3 + 1] = spreadY;
+                positions[i3 + 2] = spreadZ;
 
-                // Orbital velocity
-                const speed = 1.0 / Math.sqrt(radius);
-                velocities[i3] = -Math.sin(theta) * speed;
-                velocities[i3 + 1] = 0;
-                velocities[i3 + 2] = Math.cos(theta) * speed;
+                // Bright yellow-orange-white colors
+                const heat = Math.random();
+                if (heat > 0.7) {
+                    // Hottest - white
+                    colors[i3] = 1.0;
+                    colors[i3 + 1] = 1.0;
+                    colors[i3 + 2] = 0.9;
+                } else if (heat > 0.4) {
+                    // Hot - yellow
+                    colors[i3] = 1.0;
+                    colors[i3 + 1] = 0.8;
+                    colors[i3 + 2] = 0.3;
+                } else {
+                    // Warm - orange
+                    colors[i3] = 1.0;
+                    colors[i3 + 1] = 0.5;
+                    colors[i3 + 2] = 0.1;
+                }
 
-                // Color based on temperature (closer = hotter = bluer)
-                const temp = 1.0 - (radius / 65.0);
-                colors[i3] = 0.6 + temp * 0.4;
-                colors[i3 + 1] = 0.4 + temp * 0.3;
-                colors[i3 + 2] = 0.2 + temp * 0.6;
-
-                sizes[i] = Math.random() * 0.5 + 0.3;
-                ages[i] = Math.random();
+                sizes[i] = Math.random() * 2 + 0.5;
             }
 
-            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            particleGeometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
-            particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-            particleGeometry.setAttribute('age', new THREE.BufferAttribute(ages, 1));
+            flareGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            flareGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            flareGeo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-            const particleMaterial = new THREE.PointsMaterial({
-                size: 0.8,
+            const flareMat = new THREE.PointsMaterial({
+                size: 2.0,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.8,
+                opacity: 0.9,
                 blending: THREE.AdditiveBlending,
                 sizeAttenuation: true
             });
 
-            particles = new THREE.Points(particleGeometry, particleMaterial);
-            scene.add(particles);
+            const flare = new THREE.Points(flareGeo, flareMat);
+            leftFlare.add(flare);
+
+            // Add a bright glow sphere at the base of the flare
+            const glowGeo = new THREE.SphereGeometry(15, 32, 32);
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: 0xffffaa,
+                transparent: true,
+                opacity: 0.4
+            });
+            const glowSphere = new THREE.Mesh(glowGeo, glowMat);
+            glowSphere.position.set(-25, -5, 0);
+            leftFlare.add(glowSphere);
+
+            scene.add(leftFlare);
         }
 
-        function createRelativisticJets() {
-            // Create particle jets shooting from the poles
-            const jetGeometry = new THREE.BufferGeometry();
-            const jetCount = 2000;
+        function createRightStream() {
+            // The cooler blue-cyan stream on the right
+            rightStream = new THREE.Group();
 
-            const positions = new Float32Array(jetCount * 3);
-            const colors = new Float32Array(jetCount * 3);
-            const sizes = new Float32Array(jetCount);
+            const streamGeo = new THREE.BufferGeometry();
+            const streamCount = 2000;
+            const positions = new Float32Array(streamCount * 3);
+            const colors = new Float32Array(streamCount * 3);
+            const sizes = new Float32Array(streamCount);
 
-            for (let i = 0; i < jetCount; i++) {
+            for (let i = 0; i < streamCount; i++) {
                 const i3 = i * 3;
-                const isTopJet = i < jetCount / 2;
 
-                const height = Math.random() * 200 + 10;
-                const spread = Math.random() * 3;
-                const angle = Math.random() * Math.PI * 2;
+                const spreadX = Math.random() * 40 + 10; // Right side
+                const spreadY = (Math.random() - 0.5) * 30;
+                const spreadZ = (Math.random() - 0.5) * 20;
 
-                positions[i3] = Math.cos(angle) * spread;
-                positions[i3 + 1] = (isTopJet ? 1 : -1) * height;
-                positions[i3 + 2] = Math.sin(angle) * spread;
+                positions[i3] = spreadX;
+                positions[i3 + 1] = spreadY;
+                positions[i3 + 2] = spreadZ;
 
-                // Blue-white jets
-                const intensity = 1.0 - (Math.random() * 0.3);
-                colors[i3] = intensity * 0.7;
-                colors[i3 + 1] = intensity * 0.8;
-                colors[i3 + 2] = intensity;
+                // Blue-cyan colors
+                const temp = Math.random();
+                colors[i3] = 0.2 + temp * 0.3;
+                colors[i3 + 1] = 0.4 + temp * 0.4;
+                colors[i3 + 2] = 0.6 + temp * 0.4;
 
-                sizes[i] = Math.random() * 1.5 + 0.5;
+                sizes[i] = Math.random() * 1.2 + 0.3;
             }
 
-            jetGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            jetGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            jetGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            streamGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            streamGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            streamGeo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-            const jetMaterial = new THREE.PointsMaterial({
+            const streamMat = new THREE.PointsMaterial({
                 size: 1.0,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.6,
+                opacity: 0.5,
                 blending: THREE.AdditiveBlending,
                 sizeAttenuation: true
             });
 
-            const jets = new THREE.Points(jetGeometry, jetMaterial);
-            scene.add(jets);
+            const stream = new THREE.Points(streamGeo, streamMat);
+            rightStream.add(stream);
+
+            scene.add(rightStream);
         }
 
-        function updateParticles(delta) {
-            const positions = particles.geometry.attributes.position.array;
-            const velocities = particles.geometry.attributes.velocity.array;
-            const colors = particles.geometry.attributes.color.array;
-            const ages = particles.geometry.attributes.age.array;
+        function createMagneticFieldLines() {
+            // Create the fibrous texture around the event horizon
+            const linesGeo = new THREE.BufferGeometry();
+            const lineCount = 3000;
+            const positions = new Float32Array(lineCount * 3);
+            const colors = new Float32Array(lineCount * 3);
+            const sizes = new Float32Array(lineCount);
 
-            for (let i = 0; i < positions.length; i += 3) {
-                const x = positions[i];
-                const y = positions[i + 1];
-                const z = positions[i + 2];
+            for (let i = 0; i < lineCount; i++) {
+                const i3 = i * 3;
+                const angle = (i / lineCount) * Math.PI * 2 * 8; // Multiple wraps
+                const radius = 8 + Math.random() * 3;
+                const height = (Math.random() - 0.5) * 2;
 
-                const radius = Math.sqrt(x * x + z * z);
-                const distance3D = Math.sqrt(x * x + y * y + z * z);
+                positions[i3] = Math.cos(angle) * radius;
+                positions[i3 + 1] = height;
+                positions[i3 + 2] = Math.sin(angle) * radius;
 
-                // Check if particle reached event horizon
-                if (distance3D < 8) {
-                    // Respawn at outer edge
-                    const newRadius = 50 + Math.random() * 15;
-                    const newTheta = Math.random() * Math.PI * 2;
-                    const newHeight = (Math.random() - 0.5) * 10;
+                // Orange glow
+                const brightness = 0.5 + Math.random() * 0.5;
+                colors[i3] = brightness;
+                colors[i3 + 1] = brightness * 0.5;
+                colors[i3 + 2] = brightness * 0.1;
 
-                    positions[i] = Math.cos(newTheta) * newRadius;
-                    positions[i + 1] = newHeight;
-                    positions[i + 2] = Math.sin(newTheta) * newRadius;
-
-                    ages[i / 3] = 0;
-                } else {
-                    // Spiral inward with orbital motion
-                    const theta = Math.atan2(z, x);
-                    const orbitSpeed = params.diskRotationSpeed / Math.sqrt(radius) * delta * 5;
-                    const inwardSpeed = delta * 2;
-
-                    const newRadius = radius - inwardSpeed;
-                    const newTheta = theta + orbitSpeed;
-
-                    positions[i] = Math.cos(newTheta) * newRadius;
-                    positions[i + 2] = Math.sin(newTheta) * newRadius;
-
-                    // Pull toward equatorial plane
-                    positions[i + 1] *= 0.99;
-
-                    // Update color based on proximity (relativistic blue shift)
-                    const temp = 1.0 - (newRadius / 65.0);
-                    colors[i] = 0.6 + temp * 0.4;
-                    colors[i + 1] = 0.4 + temp * 0.3;
-                    colors[i + 2] = 0.2 + temp * 0.6;
-
-                    ages[i / 3] += delta;
-                }
+                sizes[i] = 0.5;
             }
 
-            particles.geometry.attributes.position.needsUpdate = true;
-            particles.geometry.attributes.color.needsUpdate = true;
-            particles.geometry.attributes.age.needsUpdate = true;
+            linesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            linesGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            linesGeo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+            const linesMat = new THREE.PointsMaterial({
+                size: 0.8,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.7,
+                blending: THREE.AdditiveBlending
+            });
+
+            const lines = new THREE.Points(linesGeo, linesMat);
+            scene.add(lines);
         }
 
         function setupControls() {
-            document.getElementById('diskSpeed').addEventListener('input', (e) => {
-                params.diskRotationSpeed = parseFloat(e.target.value);
-                document.getElementById('diskSpeedValue').textContent = e.target.value;
+            document.getElementById('rotationSpeed').addEventListener('input', (e) => {
+                params.rotationSpeed = parseFloat(e.target.value);
+                document.getElementById('rotationSpeedValue').textContent = e.target.value;
             });
 
-            document.getElementById('particleDensity').addEventListener('input', (e) => {
-                document.getElementById('particleDensityValue').textContent = e.target.value;
-            });
+            document.getElementById('flareIntensity').addEventListener('input', (e) => {
+                params.flareIntensity = parseFloat(e.target.value);
+                document.getElementById('flareIntensityValue').textContent = e.target.value;
 
-            document.getElementById('glowIntensity').addEventListener('input', (e) => {
-                params.glowIntensity = parseFloat(e.target.value);
-                document.getElementById('glowIntensityValue').textContent = e.target.value;
-
-                // Update accretion disk glow
                 accretionDisk.children.forEach(ring => {
                     if (ring.material.uniforms) {
-                        ring.material.uniforms.glowIntensity.value = params.glowIntensity;
+                        ring.material.uniforms.flareIntensity.value = params.flareIntensity;
                     }
                 });
             });
@@ -554,36 +572,38 @@
 
             // Rotate accretion disk
             accretionDisk.children.forEach((ring, index) => {
-                const layerSpeed = 1.0 / (index + 1);
-                ring.rotation.z += delta * params.diskRotationSpeed * layerSpeed * 0.3;
+                const layerSpeed = 1.0 / (index * 0.5 + 1);
+                ring.rotation.z += delta * params.rotationSpeed * layerSpeed * 0.2;
 
-                // Update shader time
                 if (ring.material.uniforms) {
                     ring.material.uniforms.time.value = elapsed;
                 }
             });
 
-            // Update particle system
-            updateParticles(delta);
-
-            // Subtle camera movement
-            camera.position.x += (Math.sin(elapsed * 0.1) * 0.5 - camera.position.x) * 0.01;
-            camera.position.y += (30 + Math.cos(elapsed * 0.15) * 5 - camera.position.y) * 0.01;
-            camera.lookAt(0, 0, 0);
-
-            // Slow starfield rotation
-            starField.rotation.y += delta * 0.01;
-
-            // Pulse the black hole glow
-            if (blackHole.children[1]) {
-                blackHole.children[1].material.opacity = 0.05 + Math.sin(elapsed * 2) * 0.03;
+            // Animate left flare (pulsing)
+            if (leftFlare.children[1]) {
+                const pulse = Math.sin(elapsed * 2) * 0.1 + 0.9;
+                leftFlare.children[1].material.opacity = 0.4 * pulse;
+                leftFlare.children[1].scale.set(pulse, pulse, pulse);
             }
 
-            // Render the scene
+            // Subtle rotation of the entire scene
+            accretionDisk.rotation.z += delta * params.rotationSpeed * 0.05;
+
+            // Animate flare particles
+            if (leftFlare.children[0]) {
+                leftFlare.children[0].rotation.y += delta * 0.1;
+            }
+
+            // Pulse black hole glow
+            if (blackHole.children[1]) {
+                blackHole.children[1].material.opacity = 0.1 + Math.sin(elapsed * 1.5) * 0.05;
+            }
+
             renderer.render(scene, camera);
         }
 
-        // Start the animation
+        // Start
         init();
     </script>
 </body>
